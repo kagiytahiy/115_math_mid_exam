@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>瑞峰國小三年甲班數學戰士</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #111827; 
+            color: white; 
+            overflow-x: hidden; 
+            touch-action: manipulation; 
+        }
+        
+        /* 迷宮網格與圖塊 */
+        #dungeon-grid {
+            display: grid;
+            gap: 2px;
+            background: #000;
+            padding: 4px;
+            border: 4px solid #3f3f46;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            user-select: none;
+            touch-action: none;
+        }
+        .cell {
+            width: 45px; height: 45px;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 1.5rem; cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        @media (min-width: 640px) {
+            .cell { width: 60px; height: 60px; font-size: 2rem; }
+        }
+        
+        .dungeon-wall { background-color: #292524; box-shadow: inset 2px 2px 5px #111, inset -2px -2px 5px #333; }
+        .dungeon-fog { background-color: #000000; }
+        .dungeon-path { background-color: #57534e; box-shadow: inset 1px 1px 3px #333; }
+        .dungeon-start { background-color: #1e3a8a; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .dungeon-exit { background-color: #4c1d95; animation: exitPulse 2s infinite alternate; }
+        
+        @keyframes exitPulse {
+            0% { box-shadow: 0 0 10px #8b5cf6; filter: brightness(1); }
+            100% { box-shadow: 0 0 25px #c4b5fd; filter: brightness(1.5); }
+        }
+
+        .player-token { animation: floatToken 1.5s ease-in-out infinite; z-index: 10; }
+        @keyframes floatToken {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-5px) scale(1.1); }
+        }
+
+        /* 方向鍵 */
+        .d-pad {
+            display: grid; grid-template-areas: ". up ." "left down right"; gap: 10px; margin-top: 15px;
+        }
+        .d-btn {
+            background: #374151; border: 2px solid #4b5563; color: white;
+            font-size: 1.5rem; width: 55px; height: 55px;
+            border-radius: 12px; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .d-btn:active { background: #60a5fa; border-color: #3b82f6; transform: translateY(2px); box-shadow: none; }
+        #btn-up { grid-area: up; } #btn-down { grid-area: down; }
+        #btn-left { grid-area: left; } #btn-right { grid-area: right; }
+
+        /* 魔王動畫 */
+        .boss-float { animation: float 3s ease-in-out infinite; }
+        @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-20px); } }
+        .boss-hit { animation: hitShake 0.2s cubic-bezier(.36,.07,.19,.97) both; filter: drop-shadow(0 0 20px red) brightness(1.5); }
+        @keyframes hitShake {
+            0% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(-10px, 10px) scale(0.95); }
+            50% { transform: translate(10px, -10px) scale(1.05); }
+            75% { transform: translate(-10px, -10px) scale(0.95); }
+            100% { transform: translate(0, 0) scale(1); }
+        }
+        .damage-number {
+            position: absolute; color: #ff4d4d; font-size: 2.5rem; font-weight: 900;
+            text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+            pointer-events: none; animation: floatDamage 0.8s ease-out forwards; z-index: 50;
+        }
+        @keyframes floatDamage {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-80px) scale(1.5); }
+        }
+        .boss-dead { animation: deathFade 2s forwards; }
+        @keyframes deathFade {
+            0% { transform: scale(1); filter: brightness(1); opacity: 1; }
+            50% { transform: scale(1.5); filter: brightness(2) contrast(2); opacity: 0.8; }
+            100% { transform: scale(0); filter: brightness(0); opacity: 0; }
+        }
+
+        /* 隱藏捲軸 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-2 sm:p-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+CjxyZWN0IHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgZmlsbD0iIzExMThhNyI+PC9yZWN0Pgo8cGF0aCBkPSJNMCAwbDQwIDQwbTAtNDBMMCA0MCIgc3Ryb2tlPSIjMWYyOTM3IiBzdHJva2Utd2lkdGg9IjEiPjwvcGF0aD4KPC9zdmc+')]">
+
+    <!-- 登入選單 -->
+    <div id="login-view" class="w-full max-w-3xl bg-gray-900/90 backdrop-blur-md rounded-2xl shadow-2xl p-6 sm:p-10 border-2 border-indigo-500 text-center relative overflow-hidden">
+        <script>
+            // 預防重新整理閃爍：如果在 localStorage 有紀錄，立即隱藏登入選單
+            if (localStorage.getItem('ruifeng_role')) {
+                document.getElementById('login-view').classList.add('hidden');
+            }
+        </script>
+        <h1 class="text-3xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 mb-2">
+            瑞峰國小三年甲班數學戰士
+        </h1>
+        <p class="text-gray-400 mb-8 font-semibold">專屬客製化迷宮 ╳ 不重複動態題庫</p>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            <button onclick="promptPassword('Yuchen')" class="group relative bg-gray-800 hover:bg-gray-700 text-white p-6 rounded-xl border-b-4 border-red-700 hover:border-red-500 active:border-b-0 active:mt-1 transition-all overflow-hidden">
+                <div class="text-5xl mb-3 drop-shadow-lg group-hover:scale-110 transition-transform">👦🗡️</div>
+                <div class="text-2xl font-black text-red-400">宥臣</div>
+                <div class="text-sm font-bold text-gray-400">英勇戰士</div>
+            </button>
+            <button onclick="promptPassword('Youxi')" class="group relative bg-gray-800 hover:bg-gray-700 text-white p-6 rounded-xl border-b-4 border-blue-700 hover:border-blue-500 active:border-b-0 active:mt-1 transition-all overflow-hidden">
+                <div class="text-5xl mb-3 drop-shadow-lg group-hover:scale-110 transition-transform">🧙‍♀️✨</div>
+                <div class="text-2xl font-black text-blue-400">宥希</div>
+                <div class="text-sm font-bold text-gray-400">數字法師</div>
+            </button>
+            <button onclick="promptPassword('Manning')" class="group relative bg-gray-800 hover:bg-gray-700 text-white p-6 rounded-xl border-b-4 border-green-700 hover:border-green-500 active:border-b-0 active:mt-1 transition-all overflow-hidden">
+                <div class="text-5xl mb-3 drop-shadow-lg group-hover:scale-110 transition-transform">🧝‍♀️🏹</div>
+                <div class="text-2xl font-black text-green-400">曼嚀</div>
+                <div class="text-sm font-bold text-gray-400">精靈弓手</div>
+            </button>
+        </div>
+        
+        <div class="border-t border-gray-700 pt-6 mt-4">
+            <button onclick="promptPassword('Teacher')" class="w-full bg-gray-800 hover:bg-gray-700 text-yellow-400 font-bold py-4 px-4 rounded-xl border-2 border-yellow-600 hover:border-yellow-400 transition-colors flex items-center justify-center gap-3">
+                <span class="text-2xl">👨‍🏫</span> 進入教師指令所
+            </button>
+        </div>
+    </div>
+
+    <!-- 密碼輸入 -->
+    <div id="password-view" class="w-full max-w-sm bg-gray-900 rounded-2xl shadow-2xl p-8 border-2 border-indigo-500 text-center hidden">
+        <h2 class="text-2xl text-white font-black mb-6" id="password-title">請輸入密碼</h2>
+        <input type="password" id="password-input" class="w-full bg-gray-800 text-white text-3xl p-4 rounded-xl border-2 border-gray-600 focus:border-blue-500 outline-none text-center mb-6" placeholder="•••" onkeypress="if(event.key === 'Enter') verifyPassword()">
+        <div class="flex gap-4">
+            <button onclick="cancelPassword()" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-all">取消</button>
+            <button onclick="verifyPassword()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:mt-1 transition-all">確認</button>
+        </div>
+    </div>
+
+    <!-- 迷宮探索視角 -->
+    <div id="map-view" class="w-full max-w-4xl hidden flex-col gap-4">
+        <!-- 頂部資訊 -->
+        <div class="bg-gray-800 rounded-2xl p-4 flex justify-between items-center shadow-lg border border-gray-700">
+            <div class="flex items-center gap-4">
+                <div id="map-player-avatar" class="text-4xl bg-gray-700/50 p-2 rounded-xl">👦</div>
+                <div>
+                    <h2 id="map-player-name" class="text-xl font-black text-white">宥臣</h2>
+                    <p id="map-player-class" class="text-sm font-bold text-red-400">英勇戰士</p>
+                </div>
+            </div>
+            <button onclick="logout()" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg font-bold text-sm">登出</button>
+        </div>
+
+        <!-- 迷宮區域 -->
+        <div class="bg-stone-900 rounded-2xl p-4 border-4 border-stone-700 shadow-2xl flex flex-col items-center">
+            <div id="dungeon-grid">
+                <!-- 由 JS 產生網格 -->
+            </div>
+
+            <!-- 方向鍵控制 -->
+            <div class="d-pad sm:hidden">
+                <button class="d-btn" id="btn-up" onclick="moveByKeyboard(0, -1)">▲</button>
+                <button class="d-btn" id="btn-left" onclick="moveByKeyboard(-1, 0)">◀</button>
+                <button class="d-btn" id="btn-right" onclick="moveByKeyboard(1, 0)">▶</button>
+                <button class="d-btn" id="btn-down" onclick="moveByKeyboard(0, 1)">▼</button>
+            </div>
+            <p class="text-stone-400 text-xs sm:text-sm mt-4 font-bold tracking-widest text-center">
+                🕹️ 點擊相鄰地板，或使用鍵盤 [方向鍵] 移動
+            </p>
+        </div>
+
+        <!-- 遭遇怪物答題區 -->
+        <div id="encounter-box" class="bg-gray-800 rounded-2xl p-6 border-2 border-red-900 shadow-[0_0_20px_rgba(220,38,38,0.3)] relative hidden flex-col gap-4">
+            <h3 class="text-red-400 font-bold flex items-center gap-2 text-lg">
+                <span class="text-2xl">⚔️</span> 遭遇怪物！解開謎題以擊退牠：
+            </h3>
+            <div id="dynamic-question-text" class="text-xl sm:text-2xl text-white font-black min-h-[60px] leading-relaxed whitespace-pre-line">
+                載入中...
+            </div>
+            
+            <!-- 填空題 UI -->
+            <div id="ui-input" class="hidden flex-col sm:flex-row gap-3">
+                <input type="number" id="ans-input" placeholder="輸入數字答案..." class="flex-1 bg-gray-900 text-white text-2xl font-bold p-3 rounded-xl border-2 border-gray-600 text-center sm:text-left focus:border-red-500 outline-none" onkeypress="if(event.key==='Enter') submitInputAns()">
+                <button onclick="submitInputAns()" class="bg-red-700 hover:bg-red-600 text-white text-xl font-black py-3 px-8 rounded-xl shadow-lg border-b-4 border-red-900 active:border-b-0 active:mt-1">攻擊</button>
+            </div>
+
+            <!-- 選擇題 UI -->
+            <div id="ui-mcq" class="hidden grid-cols-2 gap-3">
+                <!-- JS 生成選項 -->
+            </div>
+
+            <!-- 是非題 UI -->
+            <div id="ui-tf" class="hidden flex justify-center gap-8">
+                <button onclick="checkAnswer('O')" class="w-20 h-20 text-4xl bg-green-700 hover:bg-green-600 text-white rounded-full border-b-4 border-green-900 active:border-b-0 active:mt-1 shadow-lg">⭕</button>
+                <button onclick="checkAnswer('X')" class="w-20 h-20 text-4xl bg-red-700 hover:bg-red-600 text-white rounded-full border-b-4 border-red-900 active:border-b-0 active:mt-1 shadow-lg">❌</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 魔王戰 -->
+    <div id="boss-room" class="w-full max-w-4xl bg-gray-900 rounded-2xl shadow-2xl p-6 sm:p-10 border-4 border-red-900 text-center hidden flex-col items-center relative overflow-hidden">
+        <h2 class="text-4xl font-black text-red-500 mb-2 z-10">魔王城深處</h2>
+        <p class="text-gray-300 mb-8 font-bold z-10">等待所有英雄抵達，狂點螢幕擊退魔王！</p>
+        
+        <div class="flex flex-wrap justify-center gap-4 mb-8 z-10 w-full">
+            <div id="boss-status-Yuchen" class="flex-1 min-w-[100px] bg-gray-800 border-2 border-gray-700 rounded-xl p-3 flex flex-col items-center transition-all duration-500">
+                <div class="text-3xl mb-1">👦</div>
+                <div class="font-bold text-white mb-1">宥臣</div>
+                <div id="boss-text-Yuchen" class="text-xs font-black text-gray-500 bg-gray-900 px-2 py-1 rounded">未抵達</div>
+            </div>
+            <div id="boss-status-Youxi" class="flex-1 min-w-[100px] bg-gray-800 border-2 border-gray-700 rounded-xl p-3 flex flex-col items-center transition-all duration-500">
+                <div class="text-3xl mb-1">🧙‍♀️</div>
+                <div class="font-bold text-white mb-1">宥希</div>
+                <div id="boss-text-Youxi" class="text-xs font-black text-gray-500 bg-gray-900 px-2 py-1 rounded">未抵達</div>
+            </div>
+            <div id="boss-status-Manning" class="flex-1 min-w-[100px] bg-gray-800 border-2 border-gray-700 rounded-xl p-3 flex flex-col items-center transition-all duration-500">
+                <div class="text-3xl mb-1">🧝‍♀️</div>
+                <div class="font-bold text-white mb-1">曼嚀</div>
+                <div id="boss-text-Manning" class="text-xs font-black text-gray-500 bg-gray-900 px-2 py-1 rounded">未抵達</div>
+            </div>
+        </div>
+
+        <div id="boss-combat-area" class="relative w-full max-w-md mx-auto h-64 flex flex-col items-center justify-center z-10 select-none hidden cursor-pointer">
+            <div class="w-full bg-gray-950 rounded-full h-6 mb-6 border-2 border-gray-700 overflow-hidden relative">
+                <div id="boss-hp-bar" class="bg-gradient-to-r from-red-700 to-red-500 h-full transition-all" style="width: 100%;"></div>
+                <div class="absolute inset-0 flex items-center justify-center text-white font-black text-sm tracking-widest">
+                    魔王 HP: <span id="boss-hp-text">150</span>/150
+                </div>
+            </div>
+
+            <div id="the-boss" class="text-8xl sm:text-9xl boss-float relative inline-block transition-transform active:scale-95" onmousedown="hitBoss(event)" ontouchstart="hitBoss(event); event.preventDefault();">
+                👿
+            </div>
+            <div id="victory-msg" class="absolute inset-0 flex flex-col items-center justify-center text-5xl font-black text-yellow-400 drop-shadow-[0_5px_15px_rgba(0,0,0,1)] hidden z-20 text-center">
+                魔王討伐成功！🎉<br>
+                <span class="text-2xl mt-4 text-white">三年甲班大獲全勝！</span>
+            </div>
+        </div>
+
+        <div id="boss-waiting-msg" class="text-xl text-gray-400 font-bold mt-4 z-10 animate-pulse">等待夥伴中...</div>
+        <button onclick="logout()" class="mt-8 bg-gray-800 text-white font-bold py-2 px-6 rounded-xl border border-gray-600 z-10">登出</button>
+    </div>
+
+    <!-- 教師後台 -->
+    <div id="teacher-view" class="w-full max-w-6xl hidden flex-col h-[95vh] gap-4">
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col sm:flex-row justify-between items-center shadow-lg gap-4">
+            <h1 class="text-2xl font-black text-yellow-400">👨‍🏫 教師指令所</h1>
+            <div class="flex gap-3">
+                <button onclick="resetEverything()" class="bg-red-700 text-white px-4 py-2 rounded-lg font-bold shadow">⚠️ 全體重置</button>
+                <button onclick="logout()" class="bg-gray-700 text-white px-4 py-2 rounded-lg font-bold shadow">登出</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 overflow-hidden">
+            <!-- 學生卡片會透過 JS 生成 -->
+            <div id="teacher-cards" class="contents"></div>
+        </div>
+    </div>
+
+    <!-- 通知彈窗 -->
+    <div id="custom-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-[100]">
+        <div class="bg-gray-800 rounded-2xl p-8 max-w-sm w-full mx-4 border-2 border-gray-600 text-center">
+            <div id="modal-icon" class="text-6xl mb-4">⚠</div>
+            <h3 id="modal-title" class="text-2xl font-black text-white mb-3">通知</h3>
+            <p id="modal-text" class="text-gray-300 mb-6 font-bold leading-relaxed">訊息內容</p>
+            <button onclick="closeModal()" class="w-full bg-blue-600 text-white font-black py-3 rounded-xl">我知道了</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc, arrayUnion, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase 初始化 (保留原設定)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ruifeng-math-rpg';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' && Object.keys(JSON.parse(__firebase_config)).length > 0 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "AIzaSyChh-gYMO2Tv5FAHFpWqN3wPoyz-GeQJ3A", authDomain: "atayalgame.firebaseapp.com", projectId: "atayalgame" };
+        
+        let app, db, auth;
+        let currentUserRole = null; 
+        let unsubs = []; 
+
+        /* ================= 音效系統 (Tone.js) ================= */
+        const SoundFX = {
+            initialized: false,
+            init: async function() {
+                if (this.initialized) return;
+                await Tone.start();
+                
+                // 走路音效 (輕沉步伐)
+                this.walkSynth = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 2 }).toDestination();
+                this.walkSynth.volume.value = -12;
+
+                // 遭遇怪物音效 (尖銳警報)
+                this.alertSynth = new Tone.Synth({ oscillator: { type: "sawtooth" } }).toDestination();
+                this.alertSynth.volume.value = -15;
+
+                // 答對音效 (魔法和弦)
+                this.correctSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: "triangle" } }).toDestination();
+                this.correctSynth.volume.value = -10;
+
+                // 答錯音效 (低頻退避聲)
+                this.wrongSynth = new Tone.Synth({ oscillator: { type: "square" } }).toDestination();
+                this.wrongSynth.volume.value = -12;
+
+                // 打擊魔王音效 (金屬敲擊爆破)
+                this.bossHitSynth = new Tone.MetalSynth({ frequency: 200, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5 }).toDestination();
+                this.bossHitSynth.volume.value = -5;
+
+                this.initialized = true;
+            },
+            playWalk: function() {
+                if(!this.initialized) return;
+                this.walkSynth.triggerAttackRelease("C3", "32n");
+            },
+            playEncounter: function() {
+                if(!this.initialized) return;
+                const now = Tone.now();
+                this.alertSynth.triggerAttackRelease("E5", "16n", now);
+                this.alertSynth.triggerAttackRelease("C5", "16n", now + 0.15);
+            },
+            playCorrect: function() {
+                if(!this.initialized) return;
+                const now = Tone.now();
+                this.correctSynth.triggerAttackRelease(["C4", "E4", "G4"], "8n", now);
+                this.correctSynth.triggerAttackRelease(["C5", "E5", "G5"], "4n", now + 0.2);
+            },
+            playWrong: function() {
+                if(!this.initialized) return;
+                const now = Tone.now();
+                this.wrongSynth.triggerAttackRelease("C3", "16n", now);
+                this.wrongSynth.triggerAttackRelease("C2", "8n", now + 0.15);
+            },
+            playBossHit: function() {
+                if(!this.initialized) return;
+                this.bossHitSynth.triggerAttackRelease("32n");
+            }
+        };
+
+        // 綁定全域事件以啟動音效 (瀏覽器限制：需使用者互動才能啟動 AudioContext 引擎)
+        window.addEventListener('click', () => SoundFX.init(), { once: true });
+        window.addEventListener('keydown', () => SoundFX.init(), { once: true });
+        window.addEventListener('touchstart', () => SoundFX.init(), { once: true });
+
+        /* ================= 地圖設定 (7x7) ================= */
+        const MAZES = {
+            'Yuchen': [
+                [2, 1, 1, 0, 1, 1, 1], [0, 0, 1, 1, 1, 0, 1], [1, 1, 1, 0, 1, 1, 1],
+                [1, 0, 0, 0, 0, 0, 1], [1, 1, 1, 1, 1, 0, 1], [0, 0, 0, 1, 0, 0, 1], [1, 1, 1, 1, 1, 1, 3]
+            ],
+            'Youxi': [
+                [1, 1, 1, 0, 1, 1, 1], [1, 0, 1, 0, 1, 0, 1], [2, 0, 1, 1, 1, 0, 1],
+                [0, 0, 0, 0, 1, 1, 1], [1, 1, 1, 0, 1, 0, 0], [1, 0, 1, 1, 1, 1, 1], [1, 0, 0, 0, 0, 0, 3]
+            ],
+            'Manning': [
+                [0, 1, 1, 1, 1, 1, 3], [0, 1, 0, 0, 0, 1, 0], [0, 1, 1, 1, 1, 1, 1],
+                [2, 1, 0, 1, 0, 0, 1], [0, 0, 0, 1, 1, 1, 1], [1, 1, 1, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 1]
+            ]
+        };
+
+        const PLAYERS = {
+            'Yuchen': { id: 'Yuchen', name: '宥臣', class: '英勇戰士', icon: '👦', theme: 'text-red-400', start: {x:0, y:0}, exit: {x:6, y:6} },
+            'Youxi': { id: 'Youxi', name: '宥希', class: '數字法師', icon: '🧙‍♀️', theme: 'text-blue-400', start: {x:0, y:2}, exit: {x:6, y:6} },
+            'Manning': { id: 'Manning', name: '曼嚀', class: '精靈弓手', icon: '🧝‍♀️', theme: 'text-green-400', start: {x:0, y:3}, exit: {x:6, y:0} }
+        };
+
+        const PASSWORDS = { 'Yuchen':'1070520', 'Youxi':'1070609', 'Manning':'1061201', 'Teacher':'660828' };
+
+        let currentPos = { x:0, y:0 };
+        let visitedTiles = new Set();
+        let usedQuestions = []; // 避免重複題目
+        let pendingMove = null;
+        let currentQuestion = null;
+
+        const getPlayerDocRef = (id) => doc(db, 'artifacts', appId, 'public', 'data', 'ruifeng_players_v3', id);
+        const getBossDocRef = () => doc(db, 'artifacts', appId, 'public', 'data', 'ruifeng_boss_v3', 'state');
+
+        /* ================= 系統初始化 ================= */
+        async function initApp() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                await signInAnonymously(auth);
+
+                // 檢查魔王狀態
+                const bossRef = getBossDocRef();
+                const bossSnap = await getDoc(bossRef);
+                if (!bossSnap.exists()) await setDoc(bossRef, { hp: 150, maxHp: 150 });
+
+                window.addEventListener('keydown', handleGlobalKeyDown);
+
+                // F5 防護機制：讀取 LocalStorage 自動登入
+                const savedRole = localStorage.getItem('ruifeng_role');
+                if (savedRole) {
+                    document.getElementById('login-view').classList.add('hidden');
+                    if (savedRole === 'Teacher') startTeacherMode();
+                    else startPlayerMode(savedRole);
+                }
+            } catch (err) {
+                console.error("Firebase 初始化失敗:", err);
+            }
+        }
+
+        /* ================= 介面與登入 ================= */
+        window.promptPassword = (role) => {
+            window.pendingRole = role;
+            document.getElementById('login-view').classList.add('hidden');
+            document.getElementById('password-view').classList.remove('hidden');
+            document.getElementById('password-input').value = '';
+            document.getElementById('password-input').focus();
+        };
+
+        window.cancelPassword = () => {
+            document.getElementById('password-view').classList.add('hidden');
+            document.getElementById('login-view').classList.remove('hidden');
+        };
+
+        window.verifyPassword = () => {
+            const input = document.getElementById('password-input').value;
+            if (input === PASSWORDS[window.pendingRole]) {
+                document.getElementById('password-view').classList.add('hidden');
+                localStorage.setItem('ruifeng_role', window.pendingRole);
+                if (window.pendingRole === 'Teacher') startTeacherMode();
+                else startPlayerMode(window.pendingRole);
+            } else {
+                showModal('密碼錯誤', '請輸入正確的密碼！', '❌');
+            }
+        };
+
+        window.logout = () => {
+            currentUserRole = null;
+            localStorage.removeItem('ruifeng_role');
+            unsubs.forEach(unsub => unsub()); unsubs = [];
+            
+            ['map-view', 'boss-room', 'teacher-view'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+                document.getElementById(id).classList.remove('flex');
+            });
+            document.getElementById('login-view').classList.remove('hidden');
+        };
+
+        window.showModal = (title, text, icon = '⚠') => {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-text').innerText = text;
+            document.getElementById('modal-icon').innerText = icon;
+            document.getElementById('custom-modal').classList.remove('hidden');
+            document.getElementById('custom-modal').classList.add('flex');
+        };
+        window.closeModal = () => {
+            document.getElementById('custom-modal').classList.add('hidden');
+            document.getElementById('custom-modal').classList.remove('flex');
+        };
+
+        /* ================= 玩家模式與地圖 ================= */
+        async function startPlayerMode(playerId) {
+            currentUserRole = playerId;
+            const p = PLAYERS[playerId];
+            const docRef = getPlayerDocRef(playerId);
+            
+            // UI 設定
+            document.getElementById('map-player-avatar').innerText = p.icon;
+            document.getElementById('map-player-name').innerText = p.name;
+            document.getElementById('map-player-class').innerText = p.class;
+            document.getElementById('map-player-class').className = `text-sm font-bold ${p.theme}`;
+
+            try {
+                const snap = await getDoc(docRef);
+                const startCell = `${p.start.x},${p.start.y}`;
+                if (!snap.exists()) {
+                    await setDoc(docRef, { 
+                        posX: p.start.x, posY: p.start.y, 
+                        visited: [startCell], mistakes: [], usedQuestions: [], finished: false 
+                    });
+                }
+                
+                document.getElementById('map-view').classList.remove('hidden');
+                document.getElementById('map-view').classList.add('flex');
+                
+                // 雲端即時監聽
+                unsubs.push(onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        currentPos = { x: data.posX, y: data.posY };
+                        visitedTiles = new Set(data.visited || []);
+                        usedQuestions = data.usedQuestions || [];
+                        
+                        if (data.finished || (currentPos.x === p.exit.x && currentPos.y === p.exit.y)) {
+                            // 更新為通關並進入魔王房
+                            if(!data.finished) updateDoc(docRef, { finished: true });
+                            goToBossRoom();
+                        } else {
+                            renderMaze();
+                        }
+                    }
+                }));
+            } catch (err) {
+                console.error(err);
+                showModal('錯誤', '無法連線至異世界，請檢查網路。', '❌');
+            }
+        }
+
+        function renderMaze() {
+            const mapData = MAZES[currentUserRole];
+            const grid = document.getElementById('dungeon-grid');
+            grid.style.gridTemplateColumns = `repeat(7, 1fr)`;
+            grid.innerHTML = '';
+            
+            for (let y = 0; y < 7; y++) {
+                for (let x = 0; x < 7; x++) {
+                    const cellVal = mapData[y][x];
+                    const cellId = `${x},${y}`;
+                    const isVisited = visitedTiles.has(cellId);
+                    
+                    // 迷霧邏輯：顯示走過 + 相鄰的一格
+                    let isVisible = isVisited;
+                    if (!isVisible) {
+                        const adjs = [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
+                        isVisible = adjs.some(adj => visitedTiles.has(adj));
+                    }
+
+                    const div = document.createElement('div');
+                    div.className = 'cell';
+                    if (isVisible) div.onclick = () => window.tryMoveToClick(x, y);
+
+                    // 外觀
+                    if (!isVisible && cellVal !== 2) {
+                        div.classList.add('dungeon-fog');
+                    } else if (cellVal === 0) {
+                        div.classList.add('dungeon-wall');
+                    } else if (cellVal === 3) {
+                        div.classList.add('dungeon-exit');
+                        if (isVisited) div.innerHTML = '<span class="opacity-30">🚪</span>';
+                        else div.innerHTML = '🏰';
+                    } else if (cellVal === 2) {
+                        div.classList.add('dungeon-start');
+                        if (isVisited && (currentPos.x !== x || currentPos.y !== y)) div.innerHTML = '<span class="opacity-30 text-xs">🐾</span>';
+                    } else {
+                        div.classList.add('dungeon-path');
+                        if (isVisited && (currentPos.x !== x || currentPos.y !== y)) div.innerHTML = '<span class="opacity-30 text-xs">🐾</span>';
+                    }
+
+                    // 畫玩家
+                    if (x === currentPos.x && y === currentPos.y) {
+                        div.innerHTML = `<div class="player-token text-3xl sm:text-4xl drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]">${PLAYERS[currentUserRole].icon}</div>`;
+                    }
+                    grid.appendChild(div);
+                }
+            }
+        }
+
+        /* ================= 移動與答題邏輯 ================= */
+        function handleGlobalKeyDown(e) {
+            const mapDisplay = document.getElementById('map-view').style.display;
+            const encounterHidden = document.getElementById('encounter-box').classList.contains('hidden');
+            if (currentUserRole && currentUserRole !== 'Teacher' && mapDisplay !== 'none' && encounterHidden) {
+                if (e.key === 'ArrowUp') window.moveByKeyboard(0, -1);
+                if (e.key === 'ArrowDown') window.moveByKeyboard(0, 1);
+                if (e.key === 'ArrowLeft') window.moveByKeyboard(-1, 0);
+                if (e.key === 'ArrowRight') window.moveByKeyboard(1, 0);
+            }
+        }
+
+        window.moveByKeyboard = (dx, dy) => {
+            if (pendingMove) return;
+            processMove(currentPos.x + dx, currentPos.y + dy);
+        }
+
+        window.tryMoveToClick = (x, y) => {
+            if (pendingMove) return;
+            if (Math.abs(currentPos.x - x) + Math.abs(currentPos.y - y) === 1) {
+                processMove(x, y);
+            }
+        }
+
+        function processMove(x, y) {
+            const mapData = MAZES[currentUserRole];
+            if (x < 0 || x >= 7 || y < 0 || y >= 7) return;
+            if (mapData[y][x] === 0) return; // 撞牆
+
+            const cellId = `${x},${y}`;
+            if (visitedTiles.has(cellId)) {
+                // 已走過，直接移動 (更新 Firebase)
+                SoundFX.playWalk();
+                updateDoc(getPlayerDocRef(currentUserRole), { posX: x, posY: y });
+            } else {
+                // 未探索，遭遇戰！
+                SoundFX.playEncounter();
+                pendingMove = { x, y, cellId };
+                triggerEncounter();
+            }
+        }
+
+        /* --- 產生保證不重複的題目 --- */
+        function triggerEncounter() {
+            let maxTries = 50;
+            let q = null;
+            while(maxTries > 0) {
+                q = generateQuestionObj();
+                if (!usedQuestions.includes(q.qText)) break;
+                maxTries--;
+            }
+            currentQuestion = q;
+
+            // UI 佈置
+            document.getElementById('dynamic-question-text').innerText = q.qText;
+            document.getElementById('ui-input').classList.add('hidden');
+            document.getElementById('ui-mcq').classList.add('hidden');
+            document.getElementById('ui-tf').classList.add('hidden');
+            
+            document.getElementById('encounter-box').classList.remove('hidden');
+
+            if (q.format === 'input') {
+                document.getElementById('ui-input').classList.remove('hidden');
+                document.getElementById('ui-input').classList.add('flex');
+                document.getElementById('ans-input').value = '';
+                document.getElementById('ans-input').focus();
+            } else if (q.format === 'mcq') {
+                document.getElementById('ui-mcq').classList.remove('hidden');
+                document.getElementById('ui-mcq').classList.add('grid');
+                const container = document.getElementById('ui-mcq');
+                container.innerHTML = '';
+                q.options.forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = "bg-blue-700 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-xl shadow-lg border-b-4 border-blue-900 active:border-b-0 active:mt-1";
+                    btn.innerText = opt;
+                    btn.onclick = () => window.checkAnswer(opt);
+                    container.appendChild(btn);
+                });
+            } else if (q.format === 'tf') {
+                document.getElementById('ui-tf').classList.remove('hidden');
+            }
+        }
+
+        function generateQuestionObj() {
+            const types = ['add_sub', 'mult', 'length_unit', 'length_unit2', 'mcq', 'tf'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            let q = { qText: '', ans: '', format: 'input', options: [] };
+
+            if (type === 'add_sub') {
+                if (Math.random() > 0.5) {
+                    let a = Math.floor(Math.random() * 8000) + 1000;
+                    let b = Math.floor(Math.random() * 1900) + 100;
+                    q.qText = `${a} + ${b} = ？`; q.ans = String(a + b);
+                } else {
+                    let a = Math.floor(Math.random() * 5000) + 4000; 
+                    let b = Math.floor(Math.random() * 3000) + 100;
+                    q.qText = `${a} - ${b} = ？`; q.ans = String(a - b);
+                }
+            } else if (type === 'mult') {
+                let a = Math.floor(Math.random() * 90) + 10;
+                let b = Math.floor(Math.random() * 8) + 2;
+                q.qText = `${a} × ${b} = ？`; q.ans = String(a * b);
+            } else if (type === 'length_unit') {
+                let cm = Math.floor(Math.random() * 30) + 5;
+                let mm = Math.floor(Math.random() * 9) + 1;
+                q.qText = `${cm*10 + mm} 毫米，是多少「公分」${mm} 毫米？\n(請輸入公分數字)`;
+                q.ans = String(cm);
+            } else if (type === 'length_unit2') {
+                let m = Math.floor(Math.random() * 5) + 1;
+                let cm = Math.floor(Math.random() * 89) + 10;
+                q.qText = `${m} 公尺 ${cm} 公分 = ？ 公分`;
+                q.ans = String(m * 100 + cm);
+            } else if (type === 'mcq') {
+                q.format = 'mcq';
+                let cm = Math.floor(Math.random() * 15) + 2;
+                q.qText = `${cm} 公分等於多少毫米？`;
+                q.ans = String(cm * 10);
+                q.options = [String(cm*10), String(cm), String(cm*100), String(cm*10+5)].sort(()=>Math.random()-0.5);
+            } else if (type === 'tf') {
+                q.format = 'tf';
+                if (Math.random() > 0.5) {
+                    q.qText = `是非題：1 公尺長度等於 100 公分。`; q.ans = 'O';
+                } else {
+                    let fake = [10, 1000][Math.floor(Math.random()*2)];
+                    q.qText = `是非題：1 公尺長度等於 ${fake} 公分。`; q.ans = 'X';
+                }
+            }
+            return q;
+        }
+
+        window.submitInputAns = () => {
+            const val = document.getElementById('ans-input').value.trim();
+            if(val === '') return;
+            window.checkAnswer(val);
+        };
+
+        window.checkAnswer = async (userAns) => {
+            if (!pendingMove) return;
+            
+            const docRef = getPlayerDocRef(currentUserRole);
+
+            if (userAns === currentQuestion.ans) {
+                // 答對了！記錄題目與移動
+                SoundFX.playCorrect();
+                const newVisited = Array.from(visitedTiles);
+                newVisited.push(pendingMove.cellId);
+                const newUsed = [...usedQuestions, currentQuestion.qText];
+
+                // 樂觀更新 UI 隱藏面板
+                document.getElementById('encounter-box').classList.add('hidden');
+                
+                await updateDoc(docRef, { 
+                    posX: pendingMove.x, 
+                    posY: pendingMove.y, 
+                    visited: newVisited,
+                    usedQuestions: newUsed
+                });
+                pendingMove = null;
+            } else {
+                // 答錯，記錄錯誤並關閉面板
+                SoundFX.playWrong();
+                showModal('攻擊無效', `答案錯誤！魔王防禦了你的攻擊。\n(正確解答是: ${currentQuestion.ans})`, '🛡️');
+                await updateDoc(docRef, {
+                    mistakes: arrayUnion({
+                        q: currentQuestion.qText, wrong: userAns, correct: currentQuestion.ans, time: new Date().toLocaleTimeString()
+                    })
+                });
+                document.getElementById('encounter-box').classList.add('hidden');
+                pendingMove = null;
+            }
+        };
+
+        /* ================= 團隊魔王戰 ================= */
+        let isBossVulnerable = false;
+        let pendingClicks = 0;
+        let clickTimeout = null;
+
+        function goToBossRoom() {
+            if (document.getElementById('boss-room').classList.contains('flex')) return;
+            ['map-view', 'login-view'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+                document.getElementById(id).classList.remove('flex');
+            });
+            document.getElementById('boss-room').classList.remove('hidden');
+            document.getElementById('boss-room').classList.add('flex');
+
+            listenToBossRoom();
+        }
+
+        function listenToBossRoom() {
+            let readyStatus = { Yuchen: false, Youxi: false, Manning: false };
+
+            Object.keys(PLAYERS).forEach(id => {
+                unsubs.push(onSnapshot(getPlayerDocRef(id), (snap) => {
+                    if (snap.exists() && snap.data().finished) {
+                        readyStatus[id] = true;
+                        document.getElementById(`boss-status-${id}`).classList.add('bg-green-900', 'border-green-500');
+                        document.getElementById(`boss-text-${id}`).innerText = '已就位';
+                        document.getElementById(`boss-text-${id}`).className = 'text-sm font-black text-white bg-green-600 px-2 py-1 rounded';
+                    } else {
+                        readyStatus[id] = false;
+                        document.getElementById(`boss-status-${id}`).classList.remove('bg-green-900', 'border-green-500');
+                        document.getElementById(`boss-text-${id}`).innerText = '探索中';
+                        document.getElementById(`boss-text-${id}`).className = 'text-xs font-black text-gray-500 bg-gray-900 px-2 py-1 rounded';
+                    }
+                    
+                    const allReady = Object.values(readyStatus).every(v => v);
+                    const area = document.getElementById('boss-combat-area');
+                    const msg = document.getElementById('boss-waiting-msg');
+                    if (allReady) {
+                        isBossVulnerable = true;
+                        area.classList.remove('hidden'); msg.classList.add('hidden');
+                    } else {
+                        isBossVulnerable = false;
+                        area.classList.add('hidden'); msg.classList.remove('hidden');
+                    }
+                }));
+            });
+
+            // 監聽魔王血量
+            unsubs.push(onSnapshot(getBossDocRef(), (snap) => {
+                if (snap.exists()) {
+                    const hp = Math.max(0, snap.data().hp);
+                    document.getElementById('boss-hp-text').innerText = hp;
+                    document.getElementById('boss-hp-bar').style.width = `${(hp / 150) * 100}%`;
+
+                    const bossEl = document.getElementById('the-boss');
+                    const vicMsg = document.getElementById('victory-msg');
+                    if (hp <= 0) {
+                        isBossVulnerable = false;
+                        if (!bossEl.classList.contains('boss-dead')) {
+                            bossEl.classList.add('boss-dead'); bossEl.classList.remove('boss-float');
+                            setTimeout(() => { bossEl.style.opacity = '0'; vicMsg.classList.remove('hidden'); }, 2000);
+                        }
+                    } else {
+                        bossEl.classList.remove('boss-dead'); bossEl.classList.add('boss-float');
+                        bossEl.style.opacity = '1'; vicMsg.classList.add('hidden');
+                    }
+                }
+            }));
+        }
+
+        window.hitBoss = (e) => {
+            if (!isBossVulnerable) return;
+            
+            SoundFX.playBossHit();
+            
+            const bossEl = document.getElementById('the-boss');
+            bossEl.classList.remove('boss-hit');
+            void bossEl.offsetWidth; 
+            bossEl.classList.add('boss-hit');
+
+            // 飄浮傷害數字
+            const combatArea = document.getElementById('boss-combat-area');
+            const rect = combatArea.getBoundingClientRect();
+            let cX = e.clientX || (e.touches ? e.touches[0].clientX : rect.left + rect.width/2);
+            let cY = e.clientY || (e.touches ? e.touches[0].clientY : rect.top + rect.height/2);
+            const div = document.createElement('div');
+            div.className = 'damage-number'; div.innerText = '-1';
+            div.style.left = `${cX - rect.left}px`; div.style.top = `${cY - rect.top}px`;
+            combatArea.appendChild(div);
+            setTimeout(() => div.remove(), 800);
+
+            pendingClicks++;
+            if (clickTimeout) clearTimeout(clickTimeout);
+            clickTimeout = setTimeout(async () => {
+                const send = pendingClicks; pendingClicks = 0;
+                await updateDoc(getBossDocRef(), { hp: increment(-send) });
+            }, 500);
+        };
+
+        /* ================= 教師後台系統 ================= */
+        function startTeacherMode() {
+            document.getElementById('login-view').classList.add('hidden');
+            document.getElementById('teacher-view').classList.remove('hidden');
+            document.getElementById('teacher-view').classList.add('flex');
+
+            const container = document.getElementById('teacher-cards');
+            container.innerHTML = '';
+
+            Object.keys(PLAYERS).forEach(id => {
+                const p = PLAYERS[id];
+                const div = document.createElement('div');
+                div.className = "bg-gray-800/80 rounded-xl border border-gray-700 shadow-xl flex flex-col overflow-hidden";
+                div.innerHTML = `
+                    <div class="bg-gray-900/60 p-4 border-b border-gray-700 flex items-center gap-3">
+                        <div class="text-4xl">${p.icon}</div>
+                        <div class="flex-1">
+                            <h2 class="text-xl font-black text-white">${p.name}</h2>
+                            <div class="text-sm font-bold text-gray-400">進度: <span id="t-prog-${id}" class="text-white">讀取中</span></div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <button onclick="teacherCmd('${id}', 'boss')" class="bg-purple-700 hover:bg-purple-600 text-white text-xs px-2 py-1 rounded font-bold">傳送魔王</button>
+                            <button onclick="teacherCmd('${id}', 'start')" class="bg-gray-600 hover:bg-gray-500 text-white text-xs px-2 py-1 rounded font-bold">退回起點</button>
+                        </div>
+                    </div>
+                    <div class="flex-1 p-3 overflow-y-auto">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-red-400 font-bold text-sm">錯題紀錄</h3>
+                            <button onclick="clearMistakes('${id}')" class="text-xs bg-gray-700 text-white px-2 py-1 rounded">清空</button>
+                        </div>
+                        <ul id="t-err-${id}" class="space-y-2 text-xs"></ul>
+                    </div>
+                `;
+                container.appendChild(div);
+
+                unsubs.push(onSnapshot(getPlayerDocRef(id), (snap) => {
+                    if (snap.exists()) {
+                        const data = snap.data();
+                        document.getElementById(`t-prog-${id}`).innerText = data.finished ? "✅ 已通關" : `${(data.visited||[]).length}步探索`;
+                        
+                        const errUl = document.getElementById(`t-err-${id}`);
+                        if (!data.mistakes || data.mistakes.length === 0) {
+                            errUl.innerHTML = `<li class="text-green-400 font-bold bg-green-900/20 p-2 rounded">無錯題紀錄</li>`;
+                        } else {
+                            errUl.innerHTML = data.mistakes.slice().reverse().map(m => `
+                                <li class="bg-gray-900 p-2 rounded border-l-2 border-red-500">
+                                    <div class="font-bold text-gray-300 mb-1">${m.q}</div>
+                                    <span class="text-red-400">答:${m.wrong}</span> | <span class="text-green-400">正:${m.correct}</span>
+                                </li>
+                            `).join('');
+                        }
+                    }
+                }));
+            });
+        }
+
+        window.teacherCmd = async (id, action) => {
+            const docRef = getPlayerDocRef(id);
+            if (action === 'boss') {
+                await updateDoc(docRef, { finished: true });
+                showModal('傳送成功', `${PLAYERS[id].name} 已被傳送至魔王房！`, '✅');
+            } else if (action === 'start') {
+                const p = PLAYERS[id];
+                await updateDoc(docRef, { posX: p.start.x, posY: p.start.y, visited: [`${p.start.x},${p.start.y}`], finished: false, usedQuestions: [] });
+                showModal('重置成功', `${PLAYERS[id].name} 已被退回起點！`, '✅');
+            }
+        };
+
+        window.clearMistakes = async (id) => {
+            await updateDoc(getPlayerDocRef(id), { mistakes: [] });
+        };
+
+        window.resetEverything = async () => {
+            if(!confirm("確定要將所有人退回原點，清空所有人的題目紀錄，並復活魔王嗎？")) return;
+            try {
+                for (const id of Object.keys(PLAYERS)) {
+                    const p = PLAYERS[id];
+                    await setDoc(getPlayerDocRef(id), { 
+                        posX: p.start.x, posY: p.start.y, visited: [`${p.start.x},${p.start.y}`], 
+                        mistakes: [], usedQuestions: [], finished: false 
+                    });
+                }
+                await setDoc(getBossDocRef(), { hp: 150, maxHp: 150 });
+                showModal('世界重置', '一切已回歸初始狀態。', '🔄');
+            } catch(e) { console.error(e); }
+        };
+
+        window.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
